@@ -12,6 +12,7 @@ using u32str = std::basic_string<char32_t>;
 
 
 
+
 static u8str read_file(const char* filename) {
     auto file = std::fopen(filename, "rb");
     if (!file) {
@@ -35,13 +36,26 @@ static u8str read_file(const char* filename) {
     return result;
 }
 
-
 namespace p {
+    struct CompilationError : public virtual op::BaseException {
+        explicit CompilationError(const std::string& msg) : op::BaseException(msg) { }
+        explicit CompilationError(const char* msg) : op::BaseException(msg) { }
+    };
+
+    struct SyntaxError : public virtual CompilationError {
+        explicit SyntaxError(const std::string& msg) : op::BaseException(msg) { }
+        explicit SyntaxError(const char* msg) : op::BaseException(msg) { }
+    };
 
     class Token {
     public:
         enum Type {
             newline,
+            identifier,
+            open_paren,
+            close_paren,
+            number,
+            oper
         };
 
         Token(Type type, u32str value, size_t line, size_t col)
@@ -54,36 +68,77 @@ namespace p {
         size_t col;
     };
 
+
+    std::map<Token::Type, std::string> token_type_names = {
+        {Token::Type::newline, "newline"},
+        {Token::Type::identifier, "identifier"},
+        {Token::Type::open_paren, "open_paren"},
+        {Token::Type::close_paren, "close_paren"},
+        {Token::Type::number, "number"},
+        {Token::Type::oper, "oper"}
+    };
+
+
     class AST {
 
     };
 
     class Lexer {
     public:
-        Lexer(u32str input) : input(std::move(input)), line(1), col(1), it(input.begin()) { }
+        Lexer(u32str::iterator begin, u32str::iterator end)
+        : line(1), col(1), it(begin), end(end) { }
 
         op::optional<Token> get_token() {
-            while (it != input.end() && *it == U' ') {
-
+            const char32_t operators[] = U"+-*/&|^%<>";
+            const std::set<char32_t> operators_set(std::begin(operators), std::end(operators));
+            while (it != end && *it == U' ') {
+                ++col;
+                ++it;
             }
-            return Token(Token::newline, U"\n", line, col);
+
+            if (it == end) return {};
+
+            size_t token_col = col;
+            size_t token_line = line;
+
+            char32_t c = *it++;
+            if (c == U'\n') {
+                ++line;
+                col = 1;
+                return Token(Token::Type::newline, u32str(c, 1), token_col, token_line);
+            } else if (c == U'(') {
+                return Token(Token::Type::open_paren, u32str(c, 1), token_col, token_line);
+            } else if (c == U')') {
+                return Token(Token::Type::close_paren, u32str(c, 1), token_col, token_line);
+            } else if (operators_set.count(c)) {
+                u32str value(c, 1);
+                if (it != end) {
+                    if (((c == U'<' || c == U'>') && *it == c) || *it == U'=') {
+                        value += *it;
+                        ++it;
+                    }
+                }
+
+                return Token(Token::Type::oper, value, token_col, token_line);
+            }
+
+            std::string c_str;
+            utf32to8(&c, &c + 1, std::back_inserter(c_str));
+            throw SyntaxError(std::string("Unknown character '") + c_str);
         }
+        
+        op::optional<Token> peek_token() { return Lexer(*this).get_token(); }
 
     private:
         size_t line;
         size_t col;
-        u32str input;
         u32str::iterator it;
+        u32str::iterator end;
     };
     
 
 
-    template<class ForwardIterator>
-    AST parse(ForwardIterator begin, ForwardIterator end) {
-
-        u8str out;
-        utf8::utf32to8(begin, end, std::back_inserter(out));
-        std::fwrite(out.data(), 1, out.size(), stdout);
+    AST parse(Lexer& lexer) {
 
         return AST();
     }
@@ -114,7 +169,8 @@ namespace p {
             }
         }
 
-        return parse(input.begin(), input.end());
+        Lexer lexer(input.begin(), input.end());
+        return parse(lexer);
     }
 }
 

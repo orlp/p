@@ -1,197 +1,195 @@
-#include <cstdio>
-#include <cerrno>
 #include <cstring>
-#include <vector>
-#include <array>
 
-#include "utf8.h"
 #include "libop/op.h"
 
-using u8str = std::basic_string<uint8_t>;
-using u32str = std::basic_string<char32_t>;
+#include "common.h"
+#include "exception.h"
+#include "lexer.h"
 
-
-
-
-static u8str read_file(const char* filename) {
-    auto file = std::fopen(filename, "rb");
-    if (!file) {
-        std::fprintf(stderr, "error: %s: %s\n", filename, std::strerror(errno));
-        std::exit(1);
-    }
-
-    u8str result;
-    std::array<uint8_t, 4096> buf;
-    while (true) {
-        auto bytes_read = std::fread(buf.data(), 1, buf.size(), file);
-        if (std::ferror(file)) {
-            std::fprintf(stderr, "error: %s: %s\n", filename, std::strerror(errno));
-            std::exit(1);
-        }
-        
-        if (!bytes_read) break;
-        result.insert(result.end(), buf.begin(), buf.begin() + bytes_read);
-    }
-
-    return result;
-}
 
 namespace p {
-    struct CompilationError : public virtual op::BaseException {
-        explicit CompilationError(const std::string& msg) : op::BaseException(msg) { }
-        explicit CompilationError(const char* msg) : op::BaseException(msg) { }
+    const std::map<Token::Type, std::string> Token::type_names = {
+        {Token::Type::open_paren,   "open_paren"  },
+        {Token::Type::close_paren,  "close_paren" },
+        {Token::Type::open_square,  "open_square" },
+        {Token::Type::close_square, "close_square"},
+        {Token::Type::open_brace,   "open_brace"  },
+        {Token::Type::close_brace,  "close_brace" },
+        {Token::Type::colon,        "colon"       },
+        {Token::Type::comma,        "comma"       },
+        {Token::Type::period,       "period"      },
+        {Token::Type::comment,      "comment"     },
+        {Token::Type::identifier,   "identifier"  },
+        {Token::Type::newline,      "newline"     },
+        {Token::Type::number,       "number"      },
+        {Token::Type::oper,         "oper"        },
+        {Token::Type::string,       "string"      }
     };
 
-    struct SyntaxError : public virtual CompilationError {
-        explicit SyntaxError(const std::string& msg) : op::BaseException(msg) { }
-        explicit SyntaxError(const char* msg) : op::BaseException(msg) { }
-    };
 
-    class Token {
-    public:
-        enum Type {
-            newline,
-            identifier,
-            open_paren,
-            close_paren,
-            number,
-            oper
+    op::optional<Token> Lexer::get_token() {
+        static const char32_t operators[] = U"+-*/&|^%<>";
+        static const char32_t num[] = U"0123456789";
+        static const char32_t alpha[] =
+            U"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_";
+        static const char32_t alphanum[] =
+            U"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789";
+        static const char32_t brackets[] = U"(){}[]";
+        static const std::set<char32_t> operators_set(std::begin(operators), std::end(operators));
+        static const std::set<char32_t> num_set(std::begin(num), std::end(num));
+        static const std::set<char32_t> alpha_set(std::begin(alpha), std::end(alpha));
+        static const std::set<char32_t> alphanum_set(std::begin(alphanum), std::end(alphanum));
+        static const std::set<char32_t> brackets_set(std::begin(brackets), std::end(brackets));
+
+        static const std::map<char32_t, Token::Type> bracket_types = {
+            {U'(', Token::Type::open_paren},
+            {U')', Token::Type::close_paren},
+            {U'{', Token::Type::open_brace},
+            {U'}', Token::Type::close_brace},
+            {U'[', Token::Type::open_square},
+            {U']', Token::Type::close_square}
         };
 
-        Token(Type type, u32str value, size_t line, size_t col)
-        : type(type), value(value), line(line), col(col) { }
+        static const std::set<u32str> int_suffixes_set = {
+            U"f32", U"f64",
+            U"i8", U"i16", U"i32", U"i64",
+            U"u8", U"u16", U"u32", U"u64",
+            U"i"
+        };
 
-    private:
-        Type type;
-        u32str value;
-        size_t line;
-        size_t col;
-    };
+        // Skip whitespace.
+        while (it != end && *it == U' ') {
+            ++it; ++col;
+        }
 
+        if (it == end) return {};
 
-    std::map<Token::Type, std::string> token_type_names = {
-        {Token::Type::newline, "newline"},
-        {Token::Type::identifier, "identifier"},
-        {Token::Type::open_paren, "open_paren"},
-        {Token::Type::close_paren, "close_paren"},
-        {Token::Type::number, "number"},
-        {Token::Type::oper, "oper"}
-    };
+        size_t token_col = col;
+        size_t token_line = line;
 
+        char32_t c = *it++; ++col;
+        if (c == U'\n') {
+            ++line;
+            col = 1;
+            return Token(Token::Type::newline, u32str(1, c), token_line, token_col);
+        }
 
-    class AST {
-
-    };
-
-    class Lexer {
-    public:
-        Lexer(u32str::iterator begin, u32str::iterator end)
-        : line(1), col(1), it(begin), end(end) { }
-
-        op::optional<Token> get_token() {
-            const char32_t operators[] = U"+-*/&|^%<>";
-            const std::set<char32_t> operators_set(std::begin(operators), std::end(operators));
-            while (it != end && *it == U' ') {
-                ++col;
-                ++it;
+        if (brackets_set.count(c)) {
+            return Token(bracket_types.at(c), u32str(1, c), token_line, token_col);
+        } else if (c == U':') {
+            return Token(Token::Type::colon, u32str(1, c), token_line, token_col);
+        } else if (c == U',') {
+            return Token(Token::Type::comma, u32str(1, c), token_line, token_col);
+        } else if (c == U'.') {
+            return Token(Token::Type::period, u32str(1, c), token_line, token_col);
+        } else if (c == U'#') {
+            u32str value(1, c);
+            while (it != end && *it != U'\n') {
+                value += *it++; ++col;
             }
 
-            if (it == end) return {};
+            return Token(Token::Type::comment, value, token_line, token_col);
+        } else if (c == U'"') {
+            u32str value;
 
-            size_t token_col = col;
-            size_t token_line = line;
-
-            char32_t c = *it++;
-            if (c == U'\n') {
-                ++line;
-                col = 1;
-                return Token(Token::Type::newline, u32str(c, 1), token_col, token_line);
-            } else if (c == U'(') {
-                return Token(Token::Type::open_paren, u32str(c, 1), token_col, token_line);
-            } else if (c == U')') {
-                return Token(Token::Type::close_paren, u32str(c, 1), token_col, token_line);
-            } else if (operators_set.count(c)) {
-                u32str value(c, 1);
-                if (it != end) {
-                    if (((c == U'<' || c == U'>') && *it == c) || *it == U'=') {
-                        value += *it;
-                        ++it;
-                    }
+            while (true) {
+                if (it == end) {
+                    throw SyntaxError("EOF encountered in string.", token_line, col);
                 }
 
-                return Token(Token::Type::oper, value, token_col, token_line);
+                if (*it == U'\n') {
+                    throw SyntaxError("Newline encountered in string.", token_line, col);
+                }
+
+                if (*it == U'"') {
+                    ++it; ++col;
+                    break;
+                }
+
+                if (*it == U'\\') {
+                    ++it; ++col;
+                    if (it == end) {
+                        throw SyntaxError("EOF encountered in string.", token_line, col);
+                    }
+
+                    if (*it == U'"') {
+                        value += *it++; ++col;
+                    } else {
+                        value += U'\\';
+                    }
+                } else {
+                    value += *it++; ++col;
+                }
             }
 
-            std::string c_str;
-            utf32to8(&c, &c + 1, std::back_inserter(c_str));
-            throw SyntaxError(std::string("Unknown character '") + c_str);
-        }
-        
-        op::optional<Token> peek_token() { return Lexer(*this).get_token(); }
+            return Token(Token::Type::string, value, token_line, token_col);
+        } else if (operators_set.count(c)) {
+            u32str value(1, c);
+            if (it != end) {
+                if (((c == U'<' || c == U'>' || c == U'/') && *it == c) || *it == U'=') {
+                    value += *it++; ++col;
+                }
+            }
 
-    private:
-        size_t line;
-        size_t col;
-        u32str::iterator it;
-        u32str::iterator end;
-    };
-    
+            return Token(Token::Type::oper, value, token_line, token_col);
+        } else if (alpha_set.count(c)) {
+            u32str value(1, c);
+            while (it != end && alphanum_set.count(*it)) {
+                value += *it++; ++col;
+            }
 
+            return Token(Token::Type::identifier, value, token_line, token_col);
+        } else if (num_set.count(c)) {
+            u32str value(1, c);
+            bool base = false;
+            bool floating = false;
 
-    AST parse(Lexer& lexer) {
+            if (c == U'0' && it != end && (*it == U'b' || *it == U'o' || *it == U'x')) {
+                base = true;
+                value += *it++; ++col;
+            }
 
-        return AST();
-    }
+            while (it != end && num_set.count(*it)) {
+                value += *it++; ++col;
+            }
 
-    template<class ForwardIterator>
-    AST compile(ForwardIterator begin, ForwardIterator end) {
-        u32str input;
-
-        // Decode UTF-8 input into Unicode codepoints and handle line endings.
-        size_t line = 1;
-        size_t col = 1;
-        while (begin != end) {
-            try {
-                uint32_t c = utf8::next(begin, end);
-                if (c == U'\r') {
-                    c = U'\n';
-                    if (begin != end && utf8::peek_next(begin, end) == U'\n') ++begin;
+            if (!base) {
+                if (it != end && *it == U'.') {
+                    floating = true;
+                    value += *it++; ++col;
                 }
                 
-                input += c;
-                if (c == U'\n') {
-                    ++line;
-                    col = 1;
-                } else ++col;
-            } catch (const utf8::exception& e) {
-                std::fprintf(stderr, "error: %zu:%zu: %s\n", line, col, e.what());
-                std::exit(1);
+                while (it != end && num_set.count(*it)) {
+                    value += *it++; ++col;
+                }
             }
+
+            u32str suffix;
+            size_t suffix_col = col;
+            while (it != end && alphanum_set.count(*it)) {
+                suffix += *it++; ++col;
+            }
+
+            if (suffix.size()) {
+                if (floating && suffix != U"f32" && suffix != U"f64") {
+                    throw SyntaxError(
+                        std::string("Invalid float suffix '") + u32_to_string(suffix) + "'",
+                        token_line, suffix_col
+                    );
+                } else if (!floating && !int_suffixes_set.count(suffix)) {
+                    throw SyntaxError(
+                        std::string("Invalid integer suffix '") + u32_to_string(suffix) + "'",
+                        token_line, suffix_col
+                    );
+                }
+            }
+
+            return Token(Token::Type::number, value + suffix, token_line, token_col);
         }
 
-        Lexer lexer(input.begin(), input.end());
-        return parse(lexer);
+        std::string c_str;
+        utf8::utf32to8(&c, &c + 1, std::back_inserter(c_str));
+        throw SyntaxError(std::string("Unknown character '") + c_str + "'",
+                          token_line, token_col);
     }
 }
-
-
-
-
-
-int main(int argc, char** argv) {
-    if (argc < 2) {
-        std::fprintf(stderr, "Usage: %s <file>\n", argv[0]);
-        return 1;
-    }
-
-    auto file = read_file(argv[1]);
-    p::compile(file.begin(), file.end());
-
-
-
-
-
-    return 0;
-}
-
-

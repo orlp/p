@@ -5,8 +5,8 @@ all: p
 %.o: %.cpp
 	g++ $(CPPFLAGS) -c -o $@ $<
 
-p: src/main.o src/lexer.o src/ast.o
-	g++ $(CFLAGS) -o p src/main.o src/lexer.o
+p: src/main.o src/lexer.o src/parse.o
+	g++ $(CFLAGS) -o p src/lexer.o src/parse.o src/main.o 
 
 .PHONY: clean
 

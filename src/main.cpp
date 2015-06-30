@@ -6,7 +6,7 @@
 
 #include "exception.h"
 #include "common.h"
-#include "lexer.h"
+#include "parse.h"
 
 
 
@@ -62,52 +62,21 @@ static u32str decode_utf8(ForwardIterator begin, ForwardIterator end) {
 // Returns the requested line, with an arrow at the requested column from the source.
 template<class ForwardIterator>
 static u32str get_source_context(ForwardIterator begin, ForwardIterator end,
-                                 size_t line, size_t col) {
+                                 size_t line, size_t col, int ident=0) {
     int cur_line = 1;
     while (cur_line != line && begin != end) {
         if (*begin++ == U'\n') cur_line += 1;
     }
 
-    u32str result;
+    u32str result(ident, U' ');
     while (begin != end && *begin != U'\n') result += *begin++;
 
     result += U'\n';
-    while (--col) result += U' ';
+    result += u32str(col - 1 + ident, U' ');
     result += U'^';
 
     return result;
 }
-
-
-namespace p {
-    struct AST { };
-
-    AST parse(Lexer& lexer) {
-        op::optional<Token> token;
-        while (token = lexer.get_token()) {
-            if (token->type == Token::Type::newline) op::print(Token::type_names.at(token->type));
-            else op::print(Token::type_names.at(token->type), u32_to_string(token->value));
-
-        }
-
-        return AST();
-    }
-
-    template<class ForwardIterator>
-    AST compile(ForwardIterator begin, ForwardIterator end) {
-        Lexer lexer(begin, end);
-        return parse(lexer);
-    }
-
-}
-
-
-
-
-
-
-
-
 
 
 
@@ -126,7 +95,8 @@ int main(int argc, char** argv) {
     } catch (const p::SyntaxError& e) {
         std::fprintf(stdout, "%s:%zu:%zu syntax error: %s\n", argv[1], e.line, e.col, e.what());
         std::fprintf(stdout, "%s\n",
-            u32_to_string(get_source_context(decoded_file.begin(), decoded_file.end(), e.line, e.col)).c_str());
+            u32_to_string(get_source_context(decoded_file.begin(), decoded_file.end(),
+                                             e.line, e.col, 4)).c_str());
     } catch (const p::EncodingError& e) {
         std::fprintf(stdout, "%s:%zu:%zu encoding error: %s\n", argv[1], e.line, e.col, e.what());
     } catch (const p::CompilationError& e) {

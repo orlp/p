@@ -57,6 +57,13 @@ namespace p {
             U"i"
         };
 
+        // Check if we already have a cached token from peek_token.
+        if (token_cache.size())  {
+            op::optional<Token> tok = token_cache.front();
+            token_cache.pop_front();
+            return tok;
+        }
+
         // Skip whitespace.
         while (it != end && *it == U' ') {
             ++it; ++col;
@@ -126,7 +133,7 @@ namespace p {
         } else if (operators_set.count(c)) {
             u32str value(1, c);
             if (it != end) {
-                if (((c == U'<' || c == U'>' || c == U'/') && *it == c) || *it == U'=') {
+                if (((c == U'<' || c == U'>' || c == U'/' || c == U'*') && *it == c) || *it == U'=') {
                     value += *it++; ++col;
                 }
             }

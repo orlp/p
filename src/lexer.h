@@ -42,13 +42,17 @@ namespace p {
         : line(1), col(1), it(begin), end(end) { }
 
         op::optional<Token> get_token();
-        op::optional<Token> peek_token() { return Lexer(*this).get_token(); }
+        op::optional<Token> peek_token(int ahead = 1) { 
+            while (ahead > token_cache.size()) token_cache.push_back(get_token());
+            return token_cache[ahead - 1];
+        }
 
     private:
         size_t line;
         size_t col;
         u32str::iterator it;
         u32str::iterator end;
+        std::deque<op::optional<Token>> token_cache;
     };
 }
 

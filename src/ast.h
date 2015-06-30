@@ -1,19 +1,16 @@
 #ifndef P_AST_H
 #define P_AST_H
 
-#include "libop/op.h"
-
-#include "exception.h"
-#include "common.h"
-#include "lexer.h"
-
 namespace p {
-    struct AST { };
+    struct AST {
+        enum Type {
+            block,
+            expression,
+        }
 
-    AST parse(Lexer& lexer);
-    
-    template<class ForwardIterator>
-    AST compile(ForwardIterator begin, ForwardIterator end);
+        std::string value;
+        std::vector<std::shared_ptr<AST>> children;
+    };
 }
 
 #endif
